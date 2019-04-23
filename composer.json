@@ -1,0 +1,15 @@
+{
+    "name": "alexchoisy/translation_handler",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Alexandre Choisy",
+            "email": "choisy.alex@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">7.1.0",
+        "symfony/translation": "^4.2",
+        "symfony/config": "^4.2"
+    }
+}
