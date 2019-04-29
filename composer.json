@@ -7,9 +7,16 @@
             "email": "choisy.alex@gmail.com"
         }
     ],
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/alexchoisy/php-xliff"
+        }
+    ],
     "require": {
         "php": ">7.1.0",
         "symfony/translation": "^4.2",
-        "symfony/config": "^4.2"
+        "symfony/config": "^4.2",
+        "alexchoisy/php-xliff": "dev-master"
     }
 }

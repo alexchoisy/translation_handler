@@ -111,10 +111,19 @@ if (isset($_FILES['my_file'])) {
         <title>Traductions manquantes</title>
     </head>
     <body>
+        <ul class="menu">
+            <li><a href="xliff.php">CSV To xliff</a></li>
+        </ul>
+
+        <br/><br/>
+        <hr>
+        <br/><br/>
+
         <form method="post" enctype="multipart/form-data">
             <label>Fichiers xliff : </label>
             <input type="file" name="my_file[]" multiple>
             <input type="submit" value="Upload">
         </form>
+
     </body>
 </html>
