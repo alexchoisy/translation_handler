@@ -14,7 +14,7 @@ if (isset($_FILES['my_file'])) {
         $arrayKeys = array();
         $countLines = 0;
         $languagesOrder = array();
-        while (($line = fgetcsv($fh, 1000, ";")) !== FALSE) {
+        while (($line = fgetcsv($fh, 10000, $_POST['separator'])) !== FALSE) {
             if($countLines === 0) {
                 // Récupération des en-têtes
                 foreach($line as $c => $headLabel) {
@@ -58,8 +58,9 @@ if (isset($_FILES['my_file'])) {
 
             foreach ($catalog as $key => $label) {
 
+                $escapedKey = htmlentities($key, ENT_COMPAT | ENT_XML1);
                 $xmlTags .= <<<EOL
-            <trans-unit id="$id" resname="$key">
+            <trans-unit id="$id" resname="$escapedKey">
                 <source><![CDATA[$key]]></source>
                 <target><![CDATA[$label]]></target>
             </trans-unit>
@@ -85,7 +86,7 @@ EOL;
         $zip->close();
 
         header("Content-type: application/zip");
-        header("Content-Disposition: attachment; filename=translator.zip");
+        header("Content-Disposition: attachment; filename=$domain.zip");
         header("Pragma: no-cache");
         header("Expires: 0");
         readfile($filename);
@@ -111,6 +112,8 @@ EOL;
 <form method="post" enctype="multipart/form-data">
     <label>Fichier csv : </label>
     <input type="file" name="my_file" required>
+    <label>Separateur : </label>
+    <input type="text" name="separator" required>
     <br/><br/>
     <label>Id de début : </label><input type="text" name="my_idstart" required/>
     <label>Domaine : </label><input type="text" name="domain" required/>
