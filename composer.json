@@ -18,5 +18,8 @@
         "symfony/translation": "^4.2",
         "symfony/config": "^4.2",
         "alexchoisy/php-xliff": "dev-master"
+    },
+    "require-dev": {
+        "symfony/var-dumper": "^5.3"
     }
 }
