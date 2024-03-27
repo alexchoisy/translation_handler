@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" datatype="plaintext" original="file.ext">
+    <body>
+      <trans-unit id="1">
+        <source><![CDATA[label.admin]]></source>
+        <target><![CDATA[Admin Console]]></target>
+      </trans-unit>
+      <trans-unit id="2">
+        <source><![CDATA[label.users]]></source>
+        <target><![CDATA[Users]]></target>
+      </trans-unit>
+      <trans-unit id="3">
+        <source><![CDATA[label.referentiels]]></source>
+        <target><![CDATA[Frameworks]]></target>
+      </trans-unit>
+      <trans-unit id="4">
+        <source><![CDATA[label.organisations]]></source>
+        <target><![CDATA[Organisations]]></target>
+      </trans-unit>
+      <trans-unit id="5">
+        <source><![CDATA[label.cartographies]]></source>
+        <target><![CDATA[Risk maps]]></target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
