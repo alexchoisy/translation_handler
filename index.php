@@ -108,22 +108,25 @@ if (isset($_FILES['my_file'])) {
 <!doctype html>
 <html lang="fr">
     <head>
-        <title>Traductions manquantes</title>
+        <title>Application de gestion des labels Symfony ( Fichiers XLIFF ) </title>
     </head>
     <body>
         <ul class="menu">
-            <li><a href="xliff.php">CSV To xliff</a></li>
+            <li><a href="xliff.php">Transformer un fichier CSV en fichiers au format XLIFF</a></li>
         </ul>
 
         <br/><br/>
         <hr>
         <br/><br/>
 
-        <form method="post" enctype="multipart/form-data">
-            <label>Fichiers xliff : </label>
-            <input type="file" name="my_file[]" multiple>
-            <input type="submit" value="Upload">
-        </form>
+        <div class="formulaire">
+            <h1>Transformer des fichiers XLIFF en un fichier CSV</h1>
 
+            <form method="post" enctype="multipart/form-data">
+                <label>Téléverser vos fichiers au format XLIFF : </label>
+                <input type="file" name="my_file[]" multiple>
+                <input type="submit" value="Convertir en CSV">
+            </form>
+        </div>
     </body>
 </html>

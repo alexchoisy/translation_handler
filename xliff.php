@@ -98,26 +98,30 @@ EOL;
 <!doctype html>
 <html lang="fr">
 <head>
-    <title>CSV To XLIFF</title>
+    <title>Application de gestion des labels Symfony ( Fichiers XLIFF )</title>
 </head>
 <body>
 <ul class="menu">
-    <li><a href="index.php">Xliff to CSV</a></li>
+    <li><a href="index.php">Transformer des fichiers XLIFF en un fichier CSV</a></li>
 </ul>
 
 <br/><br/>
 <hr>
 <br/><br/>
 
-<form method="post" enctype="multipart/form-data">
-    <label>Fichier csv : </label>
-    <input type="file" name="my_file" required>
-    <label>Separateur : </label>
-    <input type="text" name="separator" required>
-    <br/><br/>
-    <label>Id de début : </label><input type="text" name="my_idstart" required/>
-    <label>Domaine : </label><input type="text" name="domain" required/>
-    <input type="submit" value="Upload">
-</form>
+<div class="formulaire">
+    <h1>Transformer un fichier CSV en fichiers XLIFF</h1>
+
+    <form method="post" enctype="multipart/form-data">
+
+        <label>Téléverser le fichier CSV : </label>
+        <input type="file" name="my_file" required>
+        <label>Separateur : </label>
+        <input type="text" name="separator" required>
+        <br/><br/>
+        <label>Id de début : </label><input type="text" name="my_idstart" required/>
+        <label>Domaine : </label><input type="text" name="domain" required/>
+        <input type="submit" value="Convertir en fichiers XLIFF">
+    </form>
 </body>
 </html>
