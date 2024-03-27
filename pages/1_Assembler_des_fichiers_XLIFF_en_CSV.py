@@ -4,6 +4,8 @@ import os
 import base64
 from zipfile import ZipFile
 
+st.set_page_config(page_title="Assembler des fichiers XLIFF en un fichier CSV", page_icon="📈")
+
 def extract_value(line):
     """Extraire la valeur entre "<![CDATA[" et "]]>" dans une ligne."""
     start_index = line.find('<![CDATA[') + len('<![CDATA[')
@@ -45,15 +47,15 @@ if zip_file:
                 if lang != 'Domain':
                     values[lang] = '; '.join(value_list)
 
+    # Créer un DataFrame à partir des données regroupées
+    df = pd.DataFrame(csv_data).T.reset_index().rename(columns={'index': 'Key'})
+
     # Télécharger le fichier CSV
     csv = df.to_csv(index=False)
     b64 = base64.b64encode(csv.encode()).decode()
     href = f'<a href="data:file/csv;base64,{b64}" download="output.csv">Télécharger le fichier CSV</a>'
     st.markdown(href, unsafe_allow_html=True)
     
-    # Créer un DataFrame à partir des données regroupées
-    df = pd.DataFrame(csv_data).T.reset_index().rename(columns={'index': 'Key'})
-
     # Afficher le DataFrame
     st.write(df)
 

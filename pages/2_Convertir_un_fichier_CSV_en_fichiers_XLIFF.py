@@ -6,13 +6,18 @@ import base64
 import xml.etree.ElementTree as ET
 import xml.dom.minidom
 
+st.set_page_config(page_title="Convertir un fichier CSV en fichiers XLIFF", page_icon="📂")
+
 st.title('Convertir un fichier CSV en fichiers XLIFF')
+
+# Champ pour indiquer le séparateur utilisé pour le fichier CSV
+separator = st.text_input('Entrez le séparateur utilisé pour le fichier CSV (par défaut ",") :', ',')
 
 # Téléverser un fichier CSV
 csv_file = st.file_uploader('Téléverser un fichier CSV :', type='csv')
 if csv_file:
     # Lire le fichier CSV
-    df = pd.read_csv(csv_file)
+    df = pd.read_csv(csv_file, sep=separator)
 
     pivot_table = {}
 
