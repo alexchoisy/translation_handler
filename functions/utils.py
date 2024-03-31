@@ -89,12 +89,12 @@ def verify_by_AI(translations, baseUrl, model):
     # Préparer les données pour la requête
     data = {
         "model": model,
-        "system": "You are a helpful assistant, expert in translations that helps cleanup CSV files containing translations from French to other languages. The translations will be given in the following json format : {\"key\": {\"source_fr\": \"BASE\", \"translations\": [{\"target_language\": \"en\", \"value\": \"VALUE\", \"output\": \"\"}, {\"target_language\": \"es\", \"value\": \"VALUE\", \"output\": \"\"}, {\"target_language\": \"de\", \"value\": \"VALUE\", \"output\": \"\"}]}, ...}  \n BASE represents the French phrase to translate. Given the following rules for verification : VALUE must be filled and must contain at least one character, VALUE must match the target language, VALUE must be an accurate translation of the corresponding BASE from French to target language. Use those rules to fill \"output\" with OK when the value respects all the rules, or ERR: Reason when you detect an error. Do not change anything besides \"output\".",
+        "system": "You are a helpful assistant, expert in translations that helps cleanup CSV files containing translations from French to other languages. The translations will be given in the following json format : {\"key\": {\"source_fr\": \"BASE\", \"translations\": [{\"target_language\": \"en\", \"value\": \"VALUE\", \"output\": \"\"}, {\"target_language\": \"es\", \"value\": \"VALUE\", \"output\": \"\"}, {\"target_language\": \"de\", \"value\": \"VALUE\", \"output\": \"\"}]}, ...}  \n BASE represents the French phrase to translate. Given the following rules for verification : VALUE must be filled and must contain at least one character, VALUE must match the target language, VALUE must be an accurate translation of the corresponding BASE from French to target language. Use those rules to fill \"output\" with \"OK\" when the value respects all the rules, or \"ERR: <the cause of the error>\" when you detect an error. Do not change anything besides \"output\".",
         "format":"json",
         "stream": False   
     }
 
-    jsonEncoded = json.dumps(translations)
+    jsonEncoded = json.dumps(translations, ensure_ascii=False)
         
     data["prompt"] = f"[INST]Please verify the following translations :\n{jsonEncoded}[/INST]"
 
@@ -117,6 +117,7 @@ def verify_by_AI(translations, baseUrl, model):
 def verify_by_openAI(translations, api_key, selected_model):
     # Configurer l'API OpenAI
     client = OpenAI(api_key=api_key)
+    logBox = st.session_state.logBox
 
     if selected_model["type"] == "model":
         # Préparer le message system
@@ -131,19 +132,24 @@ def verify_by_openAI(translations, api_key, selected_model):
             "BASE represents the French phrase to translate. Given the following rules for verification : "
             "VALUE must be filled and must contain at least one character, VALUE must match the target language, "
             "VALUE must be an accurate translation of the corresponding BASE from French to target language. "
-            "Use those rules to fill \"output\" with OK when the value respects all the rules, or "
-            "ERR: Reason when you detect an error. Do not change anything besides \"output\". Answer only in JSON"
+            "Use those rules to fill \"output\" with \"OK\" when the value respects all the rules, or "
+            "\"ERR: <the cause of the error>\" when you detect an error. Do not change anything besides \"output\". Answer only in JSON"
         )
 
         # Préparer la requête pour l'API OpenAI
         messages = [{"role": "system", "content": system_message}]
-        messages.append({"role": "user", "content": json.dumps(translations)})
+        messages.append({"role": "user", "content": json.dumps(translations, ensure_ascii=False)})
+
+        logBox.write('Messages openAI :')
+        logBox.code(messages)
 
         # Envoyer la requête à l'API OpenAI
         completion = client.chat.completions.create(model=selected_model["id"],messages=messages, response_format={"type":"json_object"})
 
         # Analyser la réponse de l'API OpenAI
         assistant_response = completion.choices[0].message.content
+        logBox.write('Reponse openAI :')
+        logBox.code(assistant_response)
         parsed_response = json.loads(assistant_response)
 
         return parsed_response
@@ -155,6 +161,10 @@ def verify_by_openAI(translations, api_key, selected_model):
             role="user",
             content=json.dumps(translations)
         )
+
+        logBox.write('Assistant ID:')
+        logBox.code(messages.data[0].content)
+
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=selected_model["id"],
@@ -170,12 +180,16 @@ def verify_by_openAI(translations, api_key, selected_model):
             messages = client.beta.threads.messages.list(
                 thread_id=thread.id
             )
-            st.write(messages.data[0].content)
-            st.write('FINAL RESPONSE ---------------------')
+
+            logBox.write('Réponse assistant:')
+            logBox.code(messages.data[0].content)
             # st.write(messages.data[0].content.text.value)
+
             return messages
         
 def propose_translations_deepl(verified_translations, deepLAPIKEY, baseLang, targetLangs, logBox=None):
+    logBox = st.session_state.logBox
+
     # Initialiser l'API DeepL
     auth_key = deepLAPIKEY
     translator = deepl.Translator(auth_key)
@@ -196,14 +210,16 @@ def propose_translations_deepl(verified_translations, deepLAPIKEY, baseLang, tar
                 })
 
     # Utiliser l'API de DeepL pour traduire ces éléments (max 50 traductions à la fois)
+    cptChunk = 0
     for lang, translations_to_send in err_translations.items():
         for i in range(0, len(translations_to_send), 50):
+            cptChunk += 1
             chunk = translations_to_send[i:i+50]
             source_texts = [t['source'] for t in chunk]
             result = translator.translate_text(source_texts, source_lang=baseLang, target_lang=("EN-US" if lang.upper() == "EN" else lang), tag_handling="html", preserve_formatting=True)
             
-            # st.write('DEEPL OUTPUT')
-            # st.write(result)
+            logBox.write(f"Réponse DeepL (chunk n°{cptChunk}):")
+            logBox.code(result)
 
             # Mettre à jour les traductions vérifiées avec les nouvelles traductions proposées
             for j, t in enumerate(chunk):

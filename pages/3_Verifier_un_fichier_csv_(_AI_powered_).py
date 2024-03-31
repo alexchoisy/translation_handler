@@ -120,6 +120,7 @@ with mainTab:
     if st.button('Envoyer',on_click=enableDisable, args=("form_sending",True), disabled=st.session_state.form_sending) and csv_file:
         # Déclaration de la boite à logs
         logBox = logTab.expander(label='Logs', expanded=True)
+        st.session_state.logBox = logBox
 
         # Lire le fichier CSV
         df = pd.read_csv(csv_file, sep=separator)
@@ -263,4 +264,4 @@ with mainTab:
         st.write('Aperçu du fichier CSV :')
         st.write(df)
 
-        enableDisable("form_sending", False)
+        st.session_state.form_sending = False
