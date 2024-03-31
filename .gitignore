@@ -1,2 +1,7 @@
 /vendor/
 .idea
+.vscode
+functions/__pycache__
+
+.env
+.env.local
