@@ -12,7 +12,7 @@ sys.path.append(os.path.join(project_root, 'functions'))
 
 from openai import OpenAI
 import streamlit as st
-from utils import enableDisable, merge_verified_translations, propose_translations_deepl, transform_json, verify_by_AI, verify_by_openAI
+from utils import chunk_json, enableDisable, estimate_number_of_tokens, merge_verified_translations, propose_translations_deepl, transform_json, verify_by_AI, verify_by_openAI
 import numpy as np
 import pandas as pd
 import os
@@ -53,12 +53,38 @@ st.markdown(
 
 mainTab, logTab = st.tabs(['🧠 Application', '🔨 Debug'])
 
+# Déclaration de la boite à logs
+st.session_state.full_debug = False
+logBox = logTab.expander(label='Logs', expanded=True)
+st.session_state.logBox = logBox
+
 with mainTab:
     # Champ pour indiquer le séparateur utilisé pour le fichier CSV
     separator = st.text_input('Entrez le séparateur utilisé pour le fichier CSV (par défaut ",") :', ',', disabled=st.session_state.form_sending)
 
     # Téléverser un fichier CSV
     csv_file = st.file_uploader('Téléverser un fichier CSV :', type='csv', disabled=st.session_state.form_sending)
+
+    if csv_file:
+        # Lire le fichier CSV
+        df = pd.read_csv(csv_file, sep=separator)
+        jsonVal = df.to_json()
+        # Convertir jsonVal en dictionnaire
+        jsonVal = json.loads(jsonVal)
+
+        if st.session_state.full_debug:
+            logBox.json(jsonVal, expanded=False)
+
+        # Extraire les langues à partir des en-têtes du fichier CSV
+        languages = df.columns[2:]
+        targetLanguages = [lang for lang in languages if lang != 'fr']
+        jsonTransformed = transform_json(jsonVal, 'fr', targetLanguages)
+
+        if st.session_state.full_debug:
+            logBox.code(jsonTransformed)
+
+        st.caption(f":gray[Estimation du nombre de tokens contenus dans le fichier : {estimate_number_of_tokens(jsonTransformed)}]")
+
     exampleSet = {
         "Key": ["label.test"],
         "Domain": ["messages"],
@@ -74,7 +100,7 @@ with mainTab:
     optIA = st.toggle('Utiliser un modèle IA pour détecter les erreurs de traductions', disabled=st.session_state.form_sending)
     if optIA:
         with st.container(border=True):
-            selected_source = st.selectbox('Choisir une source :', [{"key":"fake","label":'POC Mode ( Fake IA verification )'}, {"key":"openai","label":'OpenAI API ( Internet )'}, {"key":"local", "label":"Serveur local"}], format_func=(lambda opt: opt["label"]), placeholder='Choisir une option', disabled=st.session_state.form_sending)
+            selected_source = st.selectbox('Choisir une source :', [{"key":"fake","label":'POC Mode ( Fake IA verification )'}, {"key":"openai","label":'OpenAI API ( Internet )'}, {"key":"local", "label":"Serveur local Ollama"}], format_func=(lambda opt: opt["label"]), placeholder='Choisir une option', disabled=st.session_state.form_sending)
 
             if selected_source["key"] == 'fake':
                 selected_model = 'fake'
@@ -101,8 +127,8 @@ with mainTab:
                     },
                     {
                         "type": "model",
-                        "label": "gpt-3.5-turbo-16k",
-                        "id": "gpt-3.5-turbo-16k"
+                        "label": "gpt-3.5-turbo",
+                        "id": "gpt-3.5-turbo"
                     }
                 ]
                 for assistant in my_assistants.data:
@@ -114,36 +140,36 @@ with mainTab:
 
                 selected_model = st.selectbox('Choisir un modèle d\'IA :', models, format_func=(lambda opt: opt["label"]+" ("+opt["type"]+ ")"), disabled=st.session_state.form_sending)
 
+            max_tokens = st.number_input(label="Nombre maximum de tokens par paquet (Chunk) :", value=2000, step=1, disabled=st.session_state.form_sending)
+
             # Ajouter un toggle pour les propositions deepL
             optDeepL = st.toggle('Utiliser DeepL pour proposer des corrections de traductions', disabled=st.session_state.form_sending)
 
+    # Activation du mode debug complet. Ne pas utiliser sur de larges datasets
+    full_debug = st.toggle("Activer le mode debug complet (à utiliser uniquement sur de petits datasets) :", disabled=st.session_state.form_sending)
+
     if st.button('Envoyer',on_click=enableDisable, args=("form_sending",True), disabled=st.session_state.form_sending) and csv_file:
         # Déclaration de la boite à logs
-        logBox = logTab.expander(label='Logs', expanded=True)
-        st.session_state.logBox = logBox
+        st.session_state.full_debug = full_debug
 
-        # Lire le fichier CSV
-        df = pd.read_csv(csv_file, sep=separator)
-        jsonVal = df.to_json()
-        # Convertir jsonVal en dictionnaire
-        jsonVal = json.loads(jsonVal)
-        logBox.json(jsonVal, expanded=False)
+        start_time = time.time()
 
         status = st.status("Transformation des données...", expanded=True)
 
-        # Extraire les langues à partir des en-têtes du fichier CSV
-        languages = df.columns[2:]
-        targetLanguages = [lang for lang in languages if lang != 'fr']
-        jsonTransformed = transform_json(jsonVal, 'fr', targetLanguages)
-
-        logBox.code(jsonTransformed)
-        time.sleep(1)
-
-        status.write("Transformation des données  ✔️")
-        logBox.json(jsonTransformed, expanded=False)
-
         if optIA and selected_model:
+
+            logBox.write("Chunking JSON Object...")
+            chunks = chunk_json(jsonTransformed, max_tokens=max_tokens)
+            logBox.write("Nombre de chunks générés : "+str(len(chunks)))
+            
+            status.write("Transformation des données  ✔️")
             status.update(label="Détection des lignes malformées...")
+
+            if st.session_state.full_debug:
+                logBox.write("Affichage des 10 premiers chunks : ")
+                for idx, chunk in enumerate(chunks[:10]):
+                    logBox.write(f"Chunk n°{idx}")
+                    logBox.json(chunk, expanded=False)
 
             if selected_source["key"] == 'fake':
                 verified_translations = {
@@ -232,13 +258,21 @@ with mainTab:
 
             # Détecter les erreurs dans les lignes
             if selected_source["key"] == "local":
-                verified_translations = verify_by_AI(jsonTransformed, baseUrl, selected_model)
+                verified_translations = {}
+                for cpt, chunk in enumerate(chunks):
+                    status.update(label=f"Détection des lignes malformées... Chunk n°{cpt} sur {str(len(chunks))}")
+                    verified_chunk = verify_by_AI(chunk, baseUrl, selected_model)
+                    verified_translations.update(verified_chunk)
                 status.write("Détection des lignes malformées  ✔️")
                 # st.json(verified_translations)
 
             # Tests openAI :
             if selected_source["key"] == "openai" and selected_model:
-                verified_translations = verify_by_openAI(jsonTransformed, openAIAPIKey, selected_model)
+                verified_translations = {}
+                for cpt, chunk in enumerate(chunks):
+                    status.update(label=f"Détection des lignes malformées... Chunk n°{cpt} sur {str(len(chunks))}")
+                    verified_chunk = verify_by_openAI(chunk, openAIAPIKey, selected_model)
+                    verified_translations.update(verified_chunk)
                 status.write("Détection des lignes malformées  ✔️")
 
             # st.write('WRITING JSON verified_translations')
@@ -257,11 +291,12 @@ with mainTab:
 
                 status.write("Génération des propositions de traduction  ✔️")
 
+        elapsed_time = time.time() - start_time
         time.sleep(1)
-        status.update(label="Terminé !", state="complete", expanded=True)
+        status.update(label=f"Terminé ! (Total : {elapsed_time} secondes)", state="complete", expanded=True)
 
         # Afficher le contenu du fichier CSV sous forme de tableau
-        st.write('Aperçu du fichier CSV :')
-        st.write(df)
+        st.write('Fichier CSV :')
+        st.dataframe(data=df,use_container_width=True)
 
         st.session_state.form_sending = False

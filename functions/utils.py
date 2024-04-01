@@ -2,12 +2,14 @@
 
 from functools import reduce
 import time
+from langchain_text_splitters import RecursiveJsonSplitter
 import pandas as pd
 import requests
 import streamlit as st
 import deepl
 import json
 from openai import OpenAI
+import tiktoken
 
 def enableDisable(stateVar, boolVal=True):
     st.session_state[stateVar] = boolVal
@@ -40,6 +42,15 @@ def transform_json(jsonDict, baseLang, targetLangs):
 
     # Convertir jsonTransformed en chaîne JSON
     return jsonTransformed
+
+def chunk_json(json_content, max_tokens=3000):
+    splitter = RecursiveJsonSplitter(max_chunk_size=max_tokens)
+    chunks = splitter.split_json(json_content)
+    return chunks
+
+def estimate_number_of_tokens(json_content, openAIModel="gpt-3.5-turbo"):
+    encoding = tiktoken.encoding_for_model(openAIModel)
+    return len(encoding.encode(json.dumps(json_content)))
 
 def merge_verified_translations(jsonVal, verified_translations, baseLang, targetLangs, deepl=False):
     
@@ -133,23 +144,27 @@ def verify_by_openAI(translations, api_key, selected_model):
             "VALUE must be filled and must contain at least one character, VALUE must match the target language, "
             "VALUE must be an accurate translation of the corresponding BASE from French to target language. "
             "Use those rules to fill \"output\" with \"OK\" when the value respects all the rules, or "
-            "\"ERR: <the cause of the error>\" when you detect an error. Do not change anything besides \"output\". Answer only in JSON"
+            "\"ERR: <the cause of the error>\" when you detect an error. Do not change anything besides \"output\". Answer with the full json string only"
         )
 
         # Préparer la requête pour l'API OpenAI
         messages = [{"role": "system", "content": system_message}]
         messages.append({"role": "user", "content": json.dumps(translations, ensure_ascii=False)})
 
-        logBox.write('Messages openAI :')
-        logBox.code(messages)
+        if st.session_state.full_debug:
+            logBox.write('Messages openAI :')
+            logBox.code(messages)
 
         # Envoyer la requête à l'API OpenAI
         completion = client.chat.completions.create(model=selected_model["id"],messages=messages, response_format={"type":"json_object"})
 
         # Analyser la réponse de l'API OpenAI
         assistant_response = completion.choices[0].message.content
-        logBox.write('Reponse openAI :')
-        logBox.code(assistant_response)
+
+        if st.session_state.full_debug:
+            logBox.write('Reponse openAI :')
+            logBox.code(assistant_response)
+
         parsed_response = json.loads(assistant_response)
 
         return parsed_response
@@ -163,7 +178,8 @@ def verify_by_openAI(translations, api_key, selected_model):
         )
 
         logBox.write('Assistant ID:')
-        logBox.code(messages.data[0].content)
+        if st.session_state.full_debug:
+            logBox.code(messages.data[0].content)
 
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
@@ -181,8 +197,9 @@ def verify_by_openAI(translations, api_key, selected_model):
                 thread_id=thread.id
             )
 
-            logBox.write('Réponse assistant:')
-            logBox.code(messages.data[0].content)
+            if st.session_state.full_debug:
+                logBox.write('Réponse assistant:')
+                logBox.code(messages.data[0].content)
             # st.write(messages.data[0].content.text.value)
 
             return messages
@@ -218,8 +235,10 @@ def propose_translations_deepl(verified_translations, deepLAPIKEY, baseLang, tar
             source_texts = [t['source'] for t in chunk]
             result = translator.translate_text(source_texts, source_lang=baseLang, target_lang=("EN-US" if lang.upper() == "EN" else lang), tag_handling="html", preserve_formatting=True)
             
-            logBox.write(f"Réponse DeepL (chunk n°{cptChunk}):")
-            logBox.code(result)
+            logBox.write(f"Réponse DeepL (chunk DeepL n°{cptChunk}):")
+
+            if st.session_state.full_debug:
+                logBox.code(result)
 
             # Mettre à jour les traductions vérifiées avec les nouvelles traductions proposées
             for j, t in enumerate(chunk):
