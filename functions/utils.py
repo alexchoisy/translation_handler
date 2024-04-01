@@ -2,7 +2,8 @@
 
 from functools import reduce
 import time
-from langchain_text_splitters import RecursiveJsonSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter, RecursiveJsonSplitter, TokenTextSplitter
+from langchain_community.document_loaders.csv_loader import CSVLoader
 import pandas as pd
 import requests
 import streamlit as st
@@ -10,6 +11,8 @@ import deepl
 import json
 from openai import OpenAI
 import tiktoken
+import csv
+import io
 
 def enableDisable(stateVar, boolVal=True):
     st.session_state[stateVar] = boolVal
@@ -43,14 +46,77 @@ def transform_json(jsonDict, baseLang, targetLangs):
     # Convertir jsonTransformed en chaîne JSON
     return jsonTransformed
 
-def chunk_json(json_content, max_tokens=3000):
-    splitter = RecursiveJsonSplitter(max_chunk_size=max_tokens)
-    chunks = splitter.split_json(json_content)
+def transform_dataframe(df, baseLang, targetLangs):
+    # Sélectionner les colonnes nécessaires
+    df = df[['Key', baseLang] + targetLangs]
+
+    # Ajouter une colonne temporaire avec l'index original
+    df['original_index'] = df.index
+
+    # Faire fondre le DataFrame pour obtenir le format souhaité
+    df_transformed = pd.melt(df, id_vars=['Key', baseLang, 'original_index'], var_name='target_lang', value_name='target')
+
+    # Renommer la colonne de la langue source
+    df_transformed.rename(columns={baseLang: 'source'}, inplace=True)
+
+    # Ajouter une colonne pour la langue source
+    df_transformed['source_lang'] = baseLang
+
+    # Trier le DataFrame par l'index original
+    df_transformed = df_transformed.sort_values('original_index')
+
+    # Supprimer la colonne temporaire
+    df_transformed = df_transformed.drop('original_index', axis=1)
+
+    # Retourner le DataFrame transformé
+    return df_transformed[['Key', 'source_lang', 'target_lang', 'source', 'target']]
+
+def chunk_csv(string, max_tokens=3000, openAIModel="gpt-3.5-turbo"):
+    splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=max_tokens, model_name=openAIModel)
+    chunks = splitter.split_text(string)
+
     return chunks
 
-def estimate_number_of_tokens(json_content, openAIModel="gpt-3.5-turbo"):
+def estimate_number_of_tokens(string, openAIModel="gpt-3.5-turbo"):
     encoding = tiktoken.encoding_for_model(openAIModel)
-    return len(encoding.encode(json.dumps(json_content)))
+
+    return len(encoding.encode(string))
+
+def estimate_number_of_tokens_ia(string, max_tokens=3000, openAIModel="gpt-3.5-turbo"):
+    splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=max_tokens, model_name=openAIModel)
+    chunks = splitter.split_text(string)
+    count = 0
+    for chunk in chunks:
+        count = count + estimate_number_of_tokens(chunk, openAIModel) + 300
+
+    return count
+
+def csv_chunk_to_verified_translations(verified_chunk, df):
+    verified_translations = {}
+
+    for i in range(len(verified_chunk)):
+        key = verified_chunk.loc[i, 'key']
+        target_language = verified_chunk.loc[i, 'target_lang']
+        output = verified_chunk.loc[i, 'output']
+        source_fr = df.loc[df['Key']==key, 'fr'].squeeze()
+        value = df.loc[df['Key']==key, target_language].squeeze()
+
+        if key not in verified_translations:
+            verified_translations[key] = {
+                "source_fr": source_fr,
+                "translations": []
+            }
+        
+        verified_translations[key]['translations'].append({
+            "target_language": target_language,
+            "value": value if value is not None else "",
+            "output": output
+        })
+
+    if st.session_state.full_debug:
+        st.session_state.logBox.write(verified_translations)
+
+    return verified_translations
 
 def merge_verified_translations(jsonVal, verified_translations, baseLang, targetLangs, deepl=False):
     
@@ -125,39 +191,44 @@ def verify_by_AI(translations, baseUrl, model):
         print(f"Error: Failed to get response from Ollama API. Status code: {response.status_code}")
         return [True] * len(translations)
     
-def verify_by_openAI(translations, api_key, selected_model):
+def verify_by_openAI(translations, api_key, selected_model, baseLang='fr', targetLangs=['en','es','de']):
     # Configurer l'API OpenAI
     client = OpenAI(api_key=api_key)
     logBox = st.session_state.logBox
+    st.session_state.tokens_count = 0
 
     if selected_model["type"] == "model":
-        # Préparer le message system
+        # Préparer le message system, environ 300 tokens
         system_message = (
             "You are a helpful assistant, expert in translations that helps cleanup "
             "CSV files containing translations from French to other languages. The "
-            "translations will be given in the following json format : "
-            "{\"key\": {\"source_fr\": \"BASE\", \"translations\": "
-            "[{\"target_language\": \"en\", \"value\": \"VALUE\", \"output\": \"\"}, "
-            "{\"target_language\": \"es\", \"value\": \"VALUE\", \"output\": \"\"}, "
-            "{\"target_language\": \"de\", \"value\": \"VALUE\", \"output\": \"\"}], ...} "
-            "BASE represents the French phrase to translate. Given the following rules for verification : "
-            "VALUE must be filled and must contain at least one character, VALUE must match the target language, "
-            "VALUE must be an accurate translation of the corresponding BASE from French to target language. "
-            "Use those rules to fill \"output\" with \"OK\" when the value respects all the rules, or "
-            "\"ERR: <the cause of the error>\" when you detect an error. Do not change anything besides \"output\". Answer with the full json string only"
+            "translations will be given in the following csv format : \n"
+            "key,source_lang,target_lang,source,target\n"
+            "UNIQUEKEY,SOURCE_LANG,TARGET_LANG,SOURCE_VALUE,TARGET_VALUE\n"
+            "...\n"
+            "Given the following rules for to verify each row : \n"
+            "TARGET_VALUE must be filled and must contain at least one character, \n"
+            "TARGET_VALUE must match the target language, \n"
+            "TARGET_VALUE must be an accurate translation of SOURCE_VALUE from SOURCE_LANG to TARGET_LANG. \n"
+            "Use those rules to produce an output csv following this format: \n"
+            "key,source_lang,target_lang,output\n"
+            "UNIQUEKEY,SOURCE_LANG,TARGET_LANG,OUTPUT\n"
+            "Fill OUTPUT with 'OK' when the row respects all the rules, or 'ERR: <Explain the error>' when you detect an error. \n"
+            "Respond only using the corresponding output csv format."
         )
 
         # Préparer la requête pour l'API OpenAI
         messages = [{"role": "system", "content": system_message}]
-        messages.append({"role": "user", "content": json.dumps(translations, ensure_ascii=False)})
+        messages.append({"role": "user", "content": f"{translations}"})
 
         if st.session_state.full_debug:
             logBox.write('Messages openAI :')
             logBox.code(messages)
 
         # Envoyer la requête à l'API OpenAI
-        completion = client.chat.completions.create(model=selected_model["id"],messages=messages, response_format={"type":"json_object"})
+        completion = client.chat.completions.create(model=selected_model["id"],messages=messages)
 
+        st.session_state.tokens_count = st.session_state.tokens_count + completion.usage.total_tokens
         # Analyser la réponse de l'API OpenAI
         assistant_response = completion.choices[0].message.content
 
@@ -165,9 +236,10 @@ def verify_by_openAI(translations, api_key, selected_model):
             logBox.write('Reponse openAI :')
             logBox.code(assistant_response)
 
-        parsed_response = json.loads(assistant_response)
+        res_df = pd.read_csv(io.StringIO(assistant_response), sep=",")
+        st.dataframe(res_df)
 
-        return parsed_response
+        return res_df
 
     if selected_model["type"] == "assistant":
         thread = client.beta.threads.create()

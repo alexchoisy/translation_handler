@@ -12,14 +12,9 @@ sys.path.append(os.path.join(project_root, 'functions'))
 
 from openai import OpenAI
 import streamlit as st
-from utils import chunk_json, enableDisable, estimate_number_of_tokens, merge_verified_translations, propose_translations_deepl, transform_json, verify_by_AI, verify_by_openAI
-import numpy as np
+from utils import chunk_csv, csv_chunk_to_verified_translations, enableDisable, estimate_number_of_tokens, estimate_number_of_tokens_ia, merge_verified_translations, propose_translations_deepl, transform_dataframe, transform_json, verify_by_AI, verify_by_openAI
 import pandas as pd
 import os
-import zipfile
-import base64
-import xml.etree.ElementTree as ET
-import xml.dom.minidom
 import requests
 # disable ssl warnings for dev purposes
 from urllib3.exceptions import InsecureRequestWarning
@@ -80,10 +75,12 @@ with mainTab:
         targetLanguages = [lang for lang in languages if lang != 'fr']
         jsonTransformed = transform_json(jsonVal, 'fr', targetLanguages)
 
-        if st.session_state.full_debug:
-            logBox.code(jsonTransformed)
+        melted = transform_dataframe(df.drop(labels='Domain',axis=1), 'fr', targetLanguages)
 
-        st.caption(f":gray[Estimation du nombre de tokens contenus dans le fichier : {estimate_number_of_tokens(jsonTransformed)}]")
+        if st.session_state.full_debug:
+            logBox.code(melted)
+
+        st.caption(f":gray[Estimation du nombre de tokens contenus dans le fichier : {estimate_number_of_tokens(melted.to_csv(index=False))}]")
 
     exampleSet = {
         "Key": ["label.test"],
@@ -122,14 +119,15 @@ with mainTab:
                 models = [
                     {
                         "type": "model",
-                        "label": "gpt-4-turbo-preview",
-                        "id": "gpt-4-turbo-preview"
+                        "label": "gpt-3.5-turbo",
+                        "id": "gpt-3.5-turbo"
                     },
                     {
                         "type": "model",
-                        "label": "gpt-3.5-turbo",
-                        "id": "gpt-3.5-turbo"
-                    }
+                        "label": "gpt-4-turbo-preview",
+                        "id": "gpt-4-turbo-preview"
+                    },
+
                 ]
                 for assistant in my_assistants.data:
                     models.append({
@@ -140,7 +138,8 @@ with mainTab:
 
                 selected_model = st.selectbox('Choisir un modèle d\'IA :', models, format_func=(lambda opt: opt["label"]+" ("+opt["type"]+ ")"), disabled=st.session_state.form_sending)
 
-            max_tokens = st.number_input(label="Nombre maximum de tokens par paquet (Chunk) :", value=2000, step=1, disabled=st.session_state.form_sending)
+            max_tokens = st.number_input(label="Nombre maximum de tokens par paquet (Chunk) :", value=2000, step=1, min_value=250, disabled=st.session_state.form_sending)
+            st.caption(f":gray[Estimation du nombre de tokens utilisés : {estimate_number_of_tokens_ia(melted.to_csv(index=False), max_tokens=max_tokens)}]")
 
             # Ajouter un toggle pour les propositions deepL
             optDeepL = st.toggle('Utiliser DeepL pour proposer des corrections de traductions', disabled=st.session_state.form_sending)
@@ -158,8 +157,8 @@ with mainTab:
 
         if optIA and selected_model:
 
-            logBox.write("Chunking JSON Object...")
-            chunks = chunk_json(jsonTransformed, max_tokens=max_tokens)
+            logBox.write("Chunking CSV Datas...")
+            chunks = chunk_csv(melted.to_csv(index=False), max_tokens=max_tokens)
             logBox.write("Nombre de chunks générés : "+str(len(chunks)))
             
             status.write("Transformation des données  ✔️")
@@ -169,7 +168,7 @@ with mainTab:
                 logBox.write("Affichage des 10 premiers chunks : ")
                 for idx, chunk in enumerate(chunks[:10]):
                     logBox.write(f"Chunk n°{idx}")
-                    logBox.json(chunk, expanded=False)
+                    logBox.code(chunk)
 
             if selected_source["key"] == 'fake':
                 verified_translations = {
@@ -258,7 +257,6 @@ with mainTab:
 
             # Détecter les erreurs dans les lignes
             if selected_source["key"] == "local":
-                verified_translations = {}
                 for cpt, chunk in enumerate(chunks):
                     status.update(label=f"Détection des lignes malformées... Chunk n°{cpt} sur {str(len(chunks))}")
                     verified_chunk = verify_by_AI(chunk, baseUrl, selected_model)
@@ -272,7 +270,8 @@ with mainTab:
                 for cpt, chunk in enumerate(chunks):
                     status.update(label=f"Détection des lignes malformées... Chunk n°{cpt} sur {str(len(chunks))}")
                     verified_chunk = verify_by_openAI(chunk, openAIAPIKey, selected_model)
-                    verified_translations.update(verified_chunk)
+                    verified_translations.update(csv_chunk_to_verified_translations(verified_chunk=verified_chunk, df=df))
+
                 status.write("Détection des lignes malformées  ✔️")
 
             # st.write('WRITING JSON verified_translations')
@@ -294,6 +293,9 @@ with mainTab:
         elapsed_time = time.time() - start_time
         time.sleep(1)
         status.update(label=f"Terminé ! (Total : {elapsed_time} secondes)", state="complete", expanded=True)
+
+        if 'tokens_count' in st.session_state:
+            st.caption(f"Nombre total de tokens utilisés : {st.session_state.tokens_count}")
 
         # Afficher le contenu du fichier CSV sous forme de tableau
         st.write('Fichier CSV :')
